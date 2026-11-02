@@ -9,6 +9,7 @@ import threading
 import time
 from collections import OrderedDict, namedtuple
 
+from openpilot import jetlink_adapter
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import log
 from openpilot.cereal.services import SERVICE_LIST
@@ -109,6 +110,11 @@ else:
 
 # Override to highest thermal band when offroad and above this temp
 OFFROAD_DANGER_TEMP = 85 if HARDWARE.get_device_type() == "mici" else 75
+
+# how long a Jetlink host may take to power off with the comma before the
+# comma stops waiting: Jetlink's SHUTDOWN_TIMEOUT of 25 s plus 5 s, written
+# out so it holds without Jetlink
+JETLINK_SHUTDOWN_CAP_S = 30.
 
 prev_offroad_states: dict[str, tuple[bool, str | None]] = {}
 
@@ -218,6 +224,8 @@ def hardware_thread(end_event, hw_queue) -> None:
   started_ts: float | None = None
   started_seen = False
   startup_blocked_ts: float | None = None
+  shutdown_since: float | None = None
+  HOOKS = jetlink_adapter.hooks()
   thermal_status = ThermalStatus.ok
 
   last_hw_state = HardwareState(
@@ -360,6 +368,7 @@ def hardware_thread(end_event, hw_queue) -> None:
     startup_conditions["free_space"] = msg.deviceState.freeSpacePercent > 2
     startup_conditions["completed_training"] = params.get("CompletedTrainingVersion") == training_version
     startup_conditions["not_driver_view"] = not params.get_bool("IsDriverViewEnabled")
+    startup_conditions["not_powering_off"] = shutdown_since is None
 
     # must be at an engageable thermal band to go onroad
     startup_conditions["device_temp_engageable"] = thermal_status < ThermalStatus.overheated
@@ -377,6 +386,9 @@ def hardware_thread(end_event, hw_queue) -> None:
 
     if show_alert:
       msg.deviceState.fanSpeedPercentDesired = 100
+
+    reason = HOOKS.reason()   # why the link the user turned on cannot run; None with it off
+    set_offroad_alert_if_changed("Offroad_JetlinkUnavailable", reason is not None, extra_text=reason)
 
     # *** registration check ***
     if not PC:
@@ -441,8 +453,14 @@ def hardware_thread(end_event, hw_queue) -> None:
     som_power_draw = HARDWARE.get_som_power_draw()
     msg.deviceState.somPowerDrawW = som_power_draw
 
-    # Check if we need to shut down
-    if power_monitor.should_shutdown(onroad_conditions["ignition"], in_car, off_ts, started_seen):
+    # Check if we need to shut down. A Jetlink host that is always on powers
+    # off with the comma: shutdown_step holds the shutdown until it has, and
+    # the cap is this fork's own guarantee on top
+    should_shutdown = power_monitor.should_shutdown(onroad_conditions["ignition"], in_car, off_ts, started_seen)
+    if should_shutdown and shutdown_since is None:
+      shutdown_since = time.monotonic()
+    capped = shutdown_since is not None and time.monotonic() - shutdown_since > JETLINK_SHUTDOWN_CAP_S
+    if HOOKS.shutdown_step(should_shutdown, f"offroad since {off_ts}") or capped:
       cloudlog.warning(f"shutting device down, offroad since {off_ts}")
       params.put_bool("DoShutdown", True, block=True)
 
