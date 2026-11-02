@@ -5,6 +5,7 @@ import pyray as rl
 from enum import IntEnum
 from collections.abc import Callable
 
+from openpilot import jetlink_adapter
 from openpilot.common.time_helpers import system_time_valid
 from openpilot.selfdrive.modeld.model_swap.selector import STOCK_LABEL, ModelSwapSelector
 from openpilot.selfdrive.ui.mici.layouts.settings.device.device_layout import EngagedConfirmationButton
@@ -288,6 +289,50 @@ class ModelSelectButton(BigButton):
       self.set_value(value)
 
 
+# jetlink_adapter.MODES, in order, as the panel shows them
+JETLINK_MODE_LABELS = ("Off", "USB", "iOS")
+
+
+def _jetlink_mode() -> int:
+  try:
+    mode = int(ui_state.params.get("JetlinkLink") or 0)
+  except ValueError:
+    mode = 0
+  return mode if 0 <= mode < len(jetlink_adapter.MODES) else 0
+
+
+class JetlinkSelectPage(NavScroller):
+  def __init__(self, on_select: Callable[[int], None]):
+    super().__init__()
+    self._on_select = on_select
+    check_icon = gui_app.texture("icons_mici/settings/device/up_to_date.png", 64, 64)
+    current = _jetlink_mode()
+
+    buttons = []
+    for idx, label in enumerate(JETLINK_MODE_LABELS):
+      btn = BigButton(label, "", check_icon if idx == current else None, scroll=True)
+      btn.set_click_callback(lambda i=idx: self.dismiss(lambda: self._on_select(i)))
+      buttons.append(btn)
+    self._scroller.add_widgets(buttons)
+
+
+class JetlinkButton(BigButton):
+  def __init__(self):
+    super().__init__("jetlink", JETLINK_MODE_LABELS[_jetlink_mode()])
+    self.set_click_callback(lambda: gui_app.push_widget(JetlinkSelectPage(self._on_select)))
+    self.set_enabled(lambda: ui_state.is_offroad())
+
+  def _update_state(self):
+    super()._update_state()
+    value = JETLINK_MODE_LABELS[_jetlink_mode()]
+    if self.get_value() != value:
+      self.set_value(value)
+
+  def _on_select(self, idx: int):
+    ui_state.params.put("JetlinkLink", str(idx), block=True)
+    self.set_value(JETLINK_MODE_LABELS[idx])
+
+
 class TargetBranchButton(BigButton):
   def __init__(self, check_update_btn: CheckUpdateButton):
     super().__init__("target branch", ui_state.params.get("UpdaterTargetBranch") or "",
@@ -336,5 +381,6 @@ class SoftwareLayoutMici(NavScroller):
       InstallUpdateButton(),
       TargetBranchButton(check_update_btn),
       ModelSelectButton(ModelSwapSelector()),
+      JetlinkButton(),
       uninstall_openpilot_btn,
     ])
