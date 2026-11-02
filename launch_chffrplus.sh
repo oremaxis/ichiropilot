@@ -86,6 +86,8 @@ function launch {
   ln -sfn rednose_repo/rednose rednose
   ln -sfn teleoprtc_repo/teleoprtc teleoprtc
   ln -sfn tinygrad_repo/tinygrad tinygrad
+  ln -sfn jetlink_repo/jetlink jetlink
+  sudo -n bash jetlink/comma/jetlink-root.sh boot /data/params/d/JetlinkLink &   # on AGNOS only
 
   # hardware specific init
   if [ -f /AGNOS ]; then
