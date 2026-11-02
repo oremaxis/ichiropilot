@@ -18,6 +18,7 @@ enum ParamKeyFlag {
   DONT_LOG = 0x20,
   DEVELOPMENT_ONLY = 0x40,
   CLEAR_ON_IGNITION_ON = 0x80,
+  BACKUP = 0x100,
   ALL = 0xFFFFFFFF
 };
 
