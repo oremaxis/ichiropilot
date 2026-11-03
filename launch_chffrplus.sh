@@ -87,7 +87,7 @@ function launch {
   ln -sfn teleoprtc_repo/teleoprtc teleoprtc
   ln -sfn tinygrad_repo/tinygrad tinygrad
   ln -sfn jetlink_repo/jetlink jetlink
-  sudo -n bash jetlink/comma/jetlink-root.sh boot /data/params/d/JetlinkLink &   # on AGNOS only
+# TEST(nohook): sudo -n bash jetlink/comma/jetlink-root.sh boot /data/params/d/JetlinkLink &   # boot hook disabled for freeze diagnosis
 
   # hardware specific init
   if [ -f /AGNOS ]; then
