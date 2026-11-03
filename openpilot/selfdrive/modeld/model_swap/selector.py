@@ -9,6 +9,8 @@ from .catalog import Bundle, bundles_from_manifest, download_bundle, fetch_manif
 
 STOCK_LABEL = "stock"
 META_NAME = ".selected.json"
+# 今の stock と同じ世代だけを選べるようにする。古い世代は入力や出力の形が違い、LegacyModelAdapter では動かない
+SUPPORTED_GENERATION = 12
 
 
 def model_source() -> str:
@@ -19,6 +21,28 @@ def param_key(source: str) -> str:
   return "ModelSwapBigPkl" if source == "chestnut" else "ModelSwapPkl"
 
 
+def _is_model_file(path: Path) -> bool:
+  # ダウンロードしたモデル、初回読み込みで作るキャッシュ、途中で止まったダウンロードの残り
+  name = path.name
+  return name.endswith((".pkl", ".pkl.cache", ".part", ".tmp")) and ".pkl" in name
+
+
+def cleanup_models(keep: Path | None) -> None:
+  """選んでいるモデル（とそのキャッシュ）以外のモデルファイルを消す"""
+  root = model_root()
+  keep_names = {keep.name, f"{keep.name}.cache"} if keep is not None else set()
+  try:
+    files = list(root.iterdir())
+  except FileNotFoundError:
+    return
+  for path in files:
+    if path.is_file() and _is_model_file(path) and path.name not in keep_names:
+      try:
+        path.unlink()
+      except OSError:
+        pass
+
+
 class ModelSwapSelector:
   def __init__(self):
     self._params = Params()
@@ -26,7 +50,8 @@ class ModelSwapSelector:
     self._bundles: list[Bundle] | None = None
     self._loading = False
     self._busy = False
-    self._error: str | None = None
+    self._error: str | None = None  # モデルの選択（ダウンロード）の失敗
+    self._list_error: str | None = None  # モデル一覧の取得の失敗。起動直後の通信不可などで起き、選択には影響しない
     self._meta = self._read_meta()
 
   @property
@@ -48,6 +73,10 @@ class ModelSwapSelector:
   @property
   def error(self) -> str | None:
     return self._error
+
+  @property
+  def list_error(self) -> str | None:
+    return self._list_error
 
   def _read_meta(self) -> dict:
     try:
@@ -87,6 +116,10 @@ class ModelSwapSelector:
     name = Path(path).name
     return next((bundle for bundle in self._bundles or [] if bundle.artifact.file_name == name), None)
 
+  def has_saved_label(self) -> bool:
+    path = self._param_path()
+    return bool(path) and self._meta.get("path") == path and bool(self._meta.get("label"))
+
   def current_label(self) -> str:
     path = self._param_path()
     if not path:
@@ -101,16 +134,17 @@ class ModelSwapSelector:
     if self._loading or self._bundles is not None:
       return
     self._loading = True
-    self._error = None
+    self._list_error = None
 
     def run() -> None:
       try:
         bundles = bundles_from_manifest(fetch_manifest(self._source))
-        self._bundles = [bundle for bundle in bundles if bundle.is_big == (self._source == "chestnut")]
+        self._bundles = [bundle for bundle in bundles
+                         if bundle.is_big == (self._source == "chestnut") and bundle.generation == SUPPORTED_GENERATION]
         if bundle := self.current_bundle():
           self._write_meta(self._param_path() or "", bundle.short_name)
       except Exception as error:
-        self._error = str(error)
+        self._list_error = str(error)
       finally:
         self._loading = False
 
@@ -130,12 +164,15 @@ class ModelSwapSelector:
           self._params.remove(key)
           self._params.remove(other_key)
           self._clear_meta()
+          # stock に戻したときは消さない。すぐ同じモデルに戻せるように残しておく（次に別のモデルを選んだときに消える）
         else:
           paths = download_bundle(bundle)
           path = str(paths[0])
           self._params.put(key, path, block=True)
           self._params.remove(other_key)
           self._write_meta(path, bundle.short_name)
+          # 切り替えが済んでから、前に使っていたモデルを消す。ダウンロードに失敗したときは前のモデルが残る
+          cleanup_models(paths[0])
       except Exception as error:
         self._error = str(error)
       finally:

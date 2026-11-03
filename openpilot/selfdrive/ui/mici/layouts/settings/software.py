@@ -1,7 +1,7 @@
 import os
 import subprocess
 import threading
-import pyray as rl
+import raylib_nb as rl
 from enum import IntEnum
 from collections.abc import Callable
 
@@ -248,7 +248,7 @@ class ModelSelectPage(NavScroller):
       return
 
     if self._selector.bundles is None:
-      if self._selector.error:
+      if self._selector.list_error:
         self._loading_btn.set_text("failed to load models")
       return
 
@@ -274,7 +274,8 @@ class ModelSelectButton(BigButton):
     self._selector = selector
     self.set_click_callback(lambda: gui_app.push_widget(ModelSelectPage(self._selector, self._selector.select)))
     self.set_enabled(lambda: ui_state.is_offroad() and not self._selector.busy)
-    if self._selector.has_selection():
+    # 表示名が保存済みなら一覧は要らない。起動直後は通信できないことが多いので、古い選択のときだけ取りに行く
+    if self._selector.has_selection() and not self._selector.has_saved_label():
       self._selector.reload()
 
   def _update_state(self):
