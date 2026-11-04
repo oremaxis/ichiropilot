@@ -330,7 +330,7 @@ class JetlinkButton(BigButton):
       self.set_value(value)
 
   def _on_select(self, idx: int):
-    ui_state.params.put("JetlinkLink", str(idx), block=True)
+    ui_state.params.put("JetlinkLink", idx, block=True)
     self.set_value(JETLINK_MODE_LABELS[idx])
 
 
