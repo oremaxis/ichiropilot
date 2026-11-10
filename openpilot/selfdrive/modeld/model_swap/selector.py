@@ -146,6 +146,7 @@ class ModelSwapSelector:
       except Exception as error:
         self._list_error = str(error)
       finally:
+        self._sync_jetlink()
         self._loading = False
 
     threading.Thread(target=run, daemon=True).start()
@@ -176,7 +177,40 @@ class ModelSwapSelector:
       except Exception as error:
         self._error = str(error)
       finally:
+        self._sync_jetlink()
         self._busy = False
 
     threading.Thread(target=run, daemon=True).start()
     return True
+
+  def _sync_jetlink(self) -> None:
+    """Jetlink 用のカタログと選択を、現在の選択状態に合わせて更新する。
+
+    Jetlink のホストは端末上のモデルファイルを読めないので、ビッグモデルの
+    ライブラリ（chestnut のマニフェスト）と、選択中のビッグモデルの ref を
+    専用パラメータに書き分ける。カタログは Jetlink のフックで拡張してから
+    保存する。失敗しても選択自体は壊さない（Jetlink は既定モデルで動く）。
+    """
+    try:
+      from openpilot import jetlink_adapter
+
+      raw = fetch_manifest("chestnut")
+      catalog = {"bundles": raw.get("bundles", [])}
+      if jetlink_adapter.should_extend_catalog():
+        catalog = jetlink_adapter.extend_catalog(catalog)
+      self._params.put("ModelSwapJetlinkCatalog", json.dumps(catalog))
+
+      pick = None
+      big_path = self._params.get("ModelSwapBigPkl")
+      if isinstance(big_path, bytes):
+        big_path = big_path.decode()
+      if big_path:
+        name = Path(big_path).name
+        pick = next((b for b in bundles_from_manifest(raw)
+                     if b.is_big and b.artifacts and b.artifact.file_name == name), None)
+      if pick is not None:
+        self._params.put("ModelSwapJetlinkPick", json.dumps({"ref": pick.ref, "displayName": pick.display_name}), block=True)
+      else:
+        self._params.remove("ModelSwapJetlinkPick")
+    except Exception:
+      pass

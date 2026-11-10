@@ -5,7 +5,10 @@ modeld, hardwared, selfdrived and the UI call.
 jetlink (the jetlink_repo submodule) runs the large driving model on an
 attached Jetson, Mac or iPhone. Its stock adapter (jetlink.openpilot.stock)
 knows stock openpilot's paths, and this fork's modeld and params are stock
-in the ways it reads, so the Adapter below overrides nothing.
+in the ways it reads. The one difference is the model manager: model_swap
+picks the models here, so the Adapter below names its big-model pick and
+catalog params, and jetlink runs the picked big model instead of its own
+default.
 
 manager imports this module to build its process list, and runs it as
 jetlinkd, the resident gadget owner. So the top level is the standard
@@ -63,11 +66,22 @@ def link_on() -> bool:
 
 @functools.cache
 def _adapter_class():
+  from jetlink.openpilot.interface import Keys
   from jetlink.openpilot.stock import Stock
 
   class Adapter(Stock):
     """jetlink.openpilot.interface.Openpilot over this fork: stock openpilot,
-    nothing overridden."""
+    with model_swap's big-model pick and catalog named for jetlink."""
+
+    # stock's keys, with the model manager's two JSON params named:
+    # jetlink.openpilot.models reads the pick ({ref, displayName}) and the
+    # catalog ({bundles}) from these, as it does from sunnypilot's manager
+    KEYS = Keys(link='JetlinkLink', offroad='IsOffroad', progress='JetlinkProgress', spec='JetlinkSpec',
+                pointers='JetlinkModelPointers', charge_phone='JetlinkChargePhone',
+                big_model='ModelSwapJetlinkPick', catalog='ModelSwapJetlinkCatalog')
+    # the sunnypilot-models manifests' minimum_selector_version: a catalog
+    # bundle is listed only when its own carries this value
+    CATALOG_SELECTOR = 21
 
   return Adapter
 
@@ -149,7 +163,8 @@ class _Off:
   # ahead: no jetlink must keep a comma on to drain the car's battery
   ANSWERS = {'should_run': False, 'status': None, 'prepare': False, 'attach': lambda model, *_: model,
              'handed_over': False, 'state': 'none', 'shutdown_step': lambda wanted, reason='': wanted,
-             'runtime': None, 'model_state': None, 'swap_events': None}
+             'runtime': None, 'model_state': None, 'swap_events': None,
+             'should_extend_catalog': False, 'extend_catalog': lambda catalog: catalog}
 
   def __init__(self, why: str = ''):
     self.why = why
@@ -175,4 +190,4 @@ def _hook(name: str):
 # the call: jetlink.openpilot.hooks says what each does and answers
 HOOK_NAMES = (*_Off.ANSWERS, 'reason')
 (should_run, status, prepare, attach, handed_over, state, shutdown_step, runtime, model_state,
- swap_events, reason) = map(_hook, HOOK_NAMES)
+ swap_events, should_extend_catalog, extend_catalog, reason) = map(_hook, HOOK_NAMES)

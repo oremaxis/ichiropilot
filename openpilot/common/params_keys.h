@@ -158,5 +158,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ChestnutRetry", {CLEAR_ON_MANAGER_START | CLEAR_ON_IGNITION_ON, BOOL}},
     {"ModelSwapPkl", {PERSISTENT, STRING}},
     {"ModelSwapBigPkl", {PERSISTENT, STRING}},
+    {"ModelSwapJetlinkCatalog", {PERSISTENT, JSON}},
+    {"ModelSwapJetlinkPick", {PERSISTENT, JSON}},
     {"Version", {PERSISTENT, STRING}},
 };
