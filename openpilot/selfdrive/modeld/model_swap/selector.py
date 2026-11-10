@@ -198,7 +198,7 @@ class ModelSwapSelector:
       catalog = {"bundles": raw.get("bundles", [])}
       if jetlink_adapter.should_extend_catalog():
         catalog = jetlink_adapter.extend_catalog(catalog)
-      self._params.put("ModelSwapJetlinkCatalog", json.dumps(catalog))
+      self._params.put("ModelSwapJetlinkCatalog", catalog)
 
       pick = None
       big_path = self._params.get("ModelSwapBigPkl")
@@ -209,7 +209,7 @@ class ModelSwapSelector:
         pick = next((b for b in bundles_from_manifest(raw)
                      if b.is_big and b.artifacts and b.artifact.file_name == name), None)
       if pick is not None:
-        self._params.put("ModelSwapJetlinkPick", json.dumps({"ref": pick.ref, "displayName": pick.display_name}), block=True)
+        self._params.put("ModelSwapJetlinkPick", {"ref": pick.ref, "displayName": pick.display_name}, block=True)
       else:
         self._params.remove("ModelSwapJetlinkPick")
     except Exception:
