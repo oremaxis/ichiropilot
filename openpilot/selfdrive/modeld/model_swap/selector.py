@@ -27,10 +27,13 @@ def _is_model_file(path: Path) -> bool:
   return name.endswith((".pkl", ".pkl.cache", ".part", ".tmp")) and ".pkl" in name
 
 
-def cleanup_models(keep: Path | None) -> None:
+def cleanup_models(keep: Path | None, extra_keep=()) -> None:
   """選んでいるモデル（とそのキャッシュ）以外のモデルファイルを消す"""
   root = model_root()
-  keep_names = {keep.name, f"{keep.name}.cache"} if keep is not None else set()
+  keep_names = set()
+  for path in (keep, *extra_keep):
+    if path is not None:
+      keep_names |= {path.name, f"{path.name}.cache"}
   try:
     files = list(root.iterdir())
   except FileNotFoundError:
@@ -44,9 +47,11 @@ def cleanup_models(keep: Path | None) -> None:
 
 
 class ModelSwapSelector:
-  def __init__(self):
+  def __init__(self, source: str | None = None):
     self._params = Params()
-    self._source = model_source()
+    # 呼び出し側が対象を決められるようにする。ビッグモデルは chestnut が挿さって
+    # いなくても選べる必要がある（Jetlink のホストが実モデルを走らせるため）
+    self._source = source if source is not None else model_source()
     self._bundles: list[Bundle] | None = None
     self._loading = False
     self._busy = False
@@ -157,23 +162,31 @@ class ModelSwapSelector:
     self._busy = True
     self._error = None
     key = param_key(self._source)
-    other_key = "ModelSwapPkl" if key == "ModelSwapBigPkl" else "ModelSwapBigPkl"
 
     def run() -> None:
       try:
         if bundle is None:
+          own_path = self._param_path()
           self._params.remove(key)
-          self._params.remove(other_key)
-          self._clear_meta()
+          # メタは小/ビッグで共有なので、自分の選択を指しているときだけ消す
+          if own_path and self._meta.get("path") == own_path:
+            self._clear_meta()
           # stock に戻したときは消さない。すぐ同じモデルに戻せるように残しておく（次に別のモデルを選んだときに消える）
         else:
           paths = download_bundle(bundle)
           path = str(paths[0])
           self._params.put(key, path, block=True)
-          self._params.remove(other_key)
           self._write_meta(path, bundle.short_name)
           # 切り替えが済んでから、前に使っていたモデルを消す。ダウンロードに失敗したときは前のモデルが残る
-          cleanup_models(paths[0])
+          # 小とビッグの選択は共存させるので、両方で選んでいるファイルは残す
+          selected = []
+          for other in (param_key("qcom"), param_key("chestnut")):
+            value = self._params.get(other)
+            if isinstance(value, bytes):
+              value = value.decode()
+            if value:
+              selected.append(Path(value))
+          cleanup_models(paths[0], selected)
       except Exception as error:
         self._error = str(error)
       finally:

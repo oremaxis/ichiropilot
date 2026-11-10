@@ -269,8 +269,8 @@ class ModelSelectPage(NavScroller):
 
 
 class ModelSelectButton(BigButton):
-  def __init__(self, selector: ModelSwapSelector):
-    super().__init__("select model", selector.current_label())
+  def __init__(self, selector: ModelSwapSelector, title: str = "select model"):
+    super().__init__(title, selector.current_label())
     self._selector = selector
     self.set_click_callback(lambda: gui_app.push_widget(ModelSelectPage(self._selector, self._selector.select)))
     self.set_enabled(lambda: ui_state.is_offroad() and not self._selector.busy)
@@ -382,6 +382,8 @@ class SoftwareLayoutMici(NavScroller):
       InstallUpdateButton(),
       TargetBranchButton(check_update_btn),
       ModelSelectButton(ModelSwapSelector()),
+      # ビッグモデルは常時選べるようにする。chestnut が無くても Jetlink 用に必要
+      ModelSelectButton(ModelSwapSelector("chestnut"), "select big model"),
       JetlinkButton(),
       uninstall_openpilot_btn,
     ])
