@@ -160,5 +160,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ModelSwapBigPkl", {PERSISTENT, STRING}},
     {"ModelSwapJetlinkCatalog", {PERSISTENT, JSON}},
     {"ModelSwapJetlinkPick", {PERSISTENT, JSON}},
+    {"TeslaSteerNoDisengage", {PERSISTENT, BOOL}},
     {"Version", {PERSISTENT, STRING}},
 };
