@@ -46,6 +46,11 @@ class TogglesLayoutMici(NavScroller):
     DisableMaxSpeedModify = BigParamControl("use TSSP acc over 115", "DisableMaxSpeedModify", toggle_callback=restart_needed_callback)
     ForceHybridVehicle = BigParamControl("force hybrid vehicle", "ForceHybridVehicle", toggle_callback=restart_needed_callback)
     IgnoreRerouteHarness = BigParamControl("ignore TSSP bypass harness", "IgnoreRerouteHarness", toggle_callback=restart_needed_callback)
+    coop_steering_toggle = BigParamControl("cooperative steering", "TeslaCoopSteering", toggle_callback=restart_needed_callback,
+                                           description="Steer with lane-keep assist (type 2) instead of angle control (type 1).\n" +
+                                                       "After a steering override, the wheel eases back\n" +
+                                                       "like stock FSD instead of snapping to the original angle.\n" +
+                                                       "Tesla only. Applies from the next onroad cycle.")
     self._lta_enable_sw_button = BigToggle("return from edge of lane", "" ,toggle_callback=self._lta_enable_sw_button_callback) #ハボタン
     self._start_accel_power_up_disp_enable_button = BigToggle("turbo boost", "" ,toggle_callback=self._start_accel_power_up_disp_enable_button_callback) #ターボブースト
     self._accel_engaged_button = BigMultiToggleAA("pedal mode    ", ["disengage", "A", "AA", "iP", "eP"], select_callback=self._accel_engaged_button_callback) #PedalMethod(N,A,AA,iP,eP)
@@ -94,6 +99,7 @@ class TogglesLayoutMici(NavScroller):
       DisableMaxSpeedModify,
       ForceHybridVehicle,
       IgnoreRerouteHarness,
+      coop_steering_toggle,
       self._lta_enable_sw_button,
       self._start_accel_power_up_disp_enable_button,
       self._accel_engaged_button,
@@ -120,10 +126,12 @@ class TogglesLayoutMici(NavScroller):
       ("DisableMaxSpeedModify", DisableMaxSpeedModify),
       ("ForceHybridVehicle", ForceHybridVehicle),
       ("IgnoreRerouteHarness", IgnoreRerouteHarness),
+      ("TeslaCoopSteering", coop_steering_toggle),
       ("C4UIOnC3X", C4UIOnC3X),
     )
 
     enable_openpilot.set_enabled(lambda: not ui_state.engaged)
+    coop_steering_toggle.set_enabled(lambda: not ui_state.engaged)
     always_on_dm_toggle.set_enabled(not ui_state.params.get_bool("AlwaysOnDMLock"))
     record_front.set_enabled(False if ui_state.params.get_bool("RecordFrontLock") else (lambda: not ui_state.engaged))
     record_mic.set_enabled(lambda: not ui_state.engaged)
