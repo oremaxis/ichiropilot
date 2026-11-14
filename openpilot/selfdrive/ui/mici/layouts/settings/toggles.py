@@ -51,6 +51,11 @@ class TogglesLayoutMici(NavScroller):
                                                        "After a steering override, the wheel eases back\n" +
                                                        "like stock FSD instead of snapping to the original angle.\n" +
                                                        "Tesla only. Applies from the next onroad cycle.")
+    steer_no_disengage_toggle = BigParamControl("no disengage on steering override", "TeslaSteerNoDisengage", toggle_callback=restart_needed_callback,
+                                                description="Steering input pauses lateral control instead of disengaging.\n" +
+                                                            "Release the wheel and steering control resumes on its own.\n" +
+                                                            "Brake and cruise cancel still disengage.\n" +
+                                                            "Tesla only. Applies from the next onroad cycle.")
     self._lta_enable_sw_button = BigToggle("return from edge of lane", "" ,toggle_callback=self._lta_enable_sw_button_callback) #ハボタン
     self._start_accel_power_up_disp_enable_button = BigToggle("turbo boost", "" ,toggle_callback=self._start_accel_power_up_disp_enable_button_callback) #ターボブースト
     self._accel_engaged_button = BigMultiToggleAA("pedal mode    ", ["disengage", "A", "AA", "iP", "eP"], select_callback=self._accel_engaged_button_callback) #PedalMethod(N,A,AA,iP,eP)
@@ -100,6 +105,7 @@ class TogglesLayoutMici(NavScroller):
       ForceHybridVehicle,
       IgnoreRerouteHarness,
       coop_steering_toggle,
+      steer_no_disengage_toggle,
       self._lta_enable_sw_button,
       self._start_accel_power_up_disp_enable_button,
       self._accel_engaged_button,
@@ -127,11 +133,13 @@ class TogglesLayoutMici(NavScroller):
       ("ForceHybridVehicle", ForceHybridVehicle),
       ("IgnoreRerouteHarness", IgnoreRerouteHarness),
       ("TeslaCoopSteering", coop_steering_toggle),
+      ("TeslaSteerNoDisengage", steer_no_disengage_toggle),
       ("C4UIOnC3X", C4UIOnC3X),
     )
 
     enable_openpilot.set_enabled(lambda: not ui_state.engaged)
     coop_steering_toggle.set_enabled(lambda: not ui_state.engaged)
+    steer_no_disengage_toggle.set_enabled(lambda: not ui_state.engaged)
     always_on_dm_toggle.set_enabled(not ui_state.params.get_bool("AlwaysOnDMLock"))
     record_front.set_enabled(False if ui_state.params.get_bool("RecordFrontLock") else (lambda: not ui_state.engaged))
     record_mic.set_enabled(lambda: not ui_state.engaged)
