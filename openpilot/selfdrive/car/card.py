@@ -5,7 +5,7 @@ import threading
 
 import openpilot.cereal.messaging as messaging
 
-from openpilot.cereal import log
+from openpilot.cereal import log, custom
 from opendbc.car.structs import car
 
 from openpilot.common.params import Params
@@ -20,6 +20,7 @@ from opendbc.car.car_helpers import get_car, interfaces
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
 from openpilot.selfdrive.car.cruise import VCruiseHelper
+from openpilot.sunnypilot.mads.helpers import set_alternative_experience, set_car_specific_params
 
 REPLAY = "REPLAY" in os.environ
 
@@ -101,14 +102,20 @@ class Car:
       self.CI = get_car(*self.can_callbacks, obd_callback(self.params), alpha_long_allowed, is_release, cached_params)
       self.RI = interfaces[self.CI.CP.carFingerprint].RadarInterface(self.CI.CP)
       self.CP = self.CI.CP
+      self.CP_SP = self.CI.CP_SP
 
       # continue onto next fingerprinting step in pandad
       self.params.put_bool("FirmwareQueryDone", True, block=True)
     else:
       self.CI, self.CP = CI, CI.CP
+      self.CP_SP = CI.CP_SP
       self.RI = RI
 
     self.CP.alternativeExperience = 0
+    # CarParamsSP (sunnypilot MADS port): apply the MADS alternative experience
+    # bits and car specific params; must run after the reset above
+    set_alternative_experience(self.CP, self.CP_SP, self.params)
+    set_car_specific_params(self.CP, self.CP_SP, self.params)
     openpilot_enabled_toggle = self.params.get_bool("OpenpilotEnabledToggle")
     controller_available = self.CI.CC is not None and openpilot_enabled_toggle and not self.CP.dashcamOnly
     self.CP.passive = not controller_available or self.CP.dashcamOnly
@@ -148,6 +155,18 @@ class Car:
     self.params.put("CarParams", cp_bytes, block=True)
     self.params.put("CarParamsCache", cp_bytes)
     self.params.put("CarParamsPersistent", cp_bytes)
+
+    # Write CarParamsSP for controls (sunnypilot MADS port)
+    cp_sp_msg = custom.CarParamsSP.new_message()
+    cp_sp_msg.flags = int(self.CP_SP.flags)
+    cp_sp_msg.safetyParam = int(self.CP_SP.safetyParam)
+    cp_sp_msg.pcmCruiseSpeed = self.CP_SP.pcmCruiseSpeed
+    cp_sp_msg.intelligentCruiseButtonManagementAvailable = self.CP_SP.intelligentCruiseButtonManagementAvailable
+    cp_sp_msg.enableGasInterceptor = self.CP_SP.enableGasInterceptor
+    cp_sp_bytes = cp_sp_msg.to_bytes()
+    self.params.put("CarParamsSP", cp_sp_bytes, block=True)
+    self.params.put("CarParamsSPCache", cp_sp_bytes)
+    self.params.put("CarParamsSPPersistent", cp_sp_bytes)
 
     self.v_cruise_helper = VCruiseHelper(self.CP)
 
