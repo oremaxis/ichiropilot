@@ -225,20 +225,9 @@ class CarEvents:
       self.no_steer_warning = False
       self.silent_steer_warning = False
     if CS.steerFaultPermanent:
-      steer_always = 0
-      try:
-        with open('/dev/shm/steer_always.txt','r') as fp:
-          steer_always_str = fp.read()
-          if steer_always_str:
-            if int(steer_always_str) >= 1:
-              steer_always = 2
-      except Exception as e:
-        pass
-      if steer_always == 0 or self.engage_time > int(5 / DT_CTRL) or self.engage_time < 0: # MADS有効時に出さない。Engage後5秒以上ならsteerUnavailableとする。< 0は初期値例外処理。
-        events.add(EventName.steerUnavailable)
-      elif self.steering_unpressed > int(0.5 / DT_CTRL):
-        # events.add(EventName.steerTempUnavailable) #なくても良さそうなら後で取り除きたい。
-        pass #何も鳴らさない
+      # MADS (sunnypilot port): the fork's steer_always suppression is retired;
+      # the MADS state machine handles paused-lateral warnings via SP events.
+      events.add(EventName.steerUnavailable)
 
     # we engage when pcm is active (rising edge)
     # enabling can optionally be blocked by the car interface

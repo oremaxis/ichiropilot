@@ -3,7 +3,7 @@ import math
 import datetime
 from numbers import Number
 
-from openpilot.cereal import log
+from openpilot.cereal import log, custom
 from opendbc.car.structs import car
 import openpilot.cereal.messaging as messaging
 from openpilot.common.constants import CV
@@ -41,8 +41,8 @@ class Controls:
 
     self.sm = messaging.SubMaster(['lateralDelay', 'vehicleParameters', 'lateralTorqueParameters', 'modelV2', 'selfdriveState',
                                    'extrinsicsCalibration', 'deviceMotion', 'longitudinalPlan', 'lateralManeuverPlan', 'carState', 'carOutput',
-                                   'driverMonitoringState', 'onroadEvents', 'driverAssistance'], poll='selfdriveState')
-    self.pm = messaging.PubMaster(['carControl', 'controlsState'])
+                                   'driverMonitoringState', 'onroadEvents', 'driverAssistance', 'selfdriveStateSP'], poll='selfdriveState')
+    self.pm = messaging.PubMaster(['carControl', 'controlsState', 'carControlSP'])
 
     self.steer_limited_by_safety = False
     self.curvature = 0.0
@@ -101,22 +101,13 @@ class Controls:
 
     # Check which actuators can be enabled
     standstill = abs(CS.vEgo) <= max(self.CP.minSteerSpeed, 0.3) or CS.standstill
-    steer_always = 0
-    cruise_available = 0
-    try:
-      with open('/dev/shm/steer_always.txt','r') as fp:
-        steer_always_str = fp.read()
-        if steer_always_str:
-          if int(steer_always_str) >= 1:
-            steer_always = 2
-      with open('/dev/shm/cruise_available.txt','r') as fp:
-        cruise_available_str = fp.read()
-        if cruise_available_str:
-          if int(cruise_available_str) >= 1:
-            cruise_available = 1 #ACCボタンがOFFならlatActiveをTrueにしない。
-    except Exception as e:
-      pass
-    CC.latActive = (self.sm['selfdriveState'].active or (steer_always != 0 and cruise_available != 0)) and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
+    # MADS (sunnypilot port): when MADS is available, lateral activation follows
+    # the MADS state machine on selfdriveStateSP instead of the stock state.
+    # This supersedes the fork's steer_always file hack. The steer fault and
+    # standstill gates from the stock expression still apply on top.
+    ss_sp = self.sm['selfdriveStateSP']
+    lat_active = ss_sp.mads.active if ss_sp.mads.available else self.sm['selfdriveState'].active
+    CC.latActive = lat_active and not CS.steerFaultTemporary and not CS.steerFaultPermanent and \
                    (not standstill or self.CP.steerAtStandstill)
     CC.longActive = CC.enabled and not any(e.overrideLongitudinal for e in self.sm['onroadEvents']) and self.CP.openpilotLongitudinalControl
     # with open('/tmp/long_brake.txt','w') as fp:
@@ -268,6 +259,17 @@ class Controls:
     cc_send.valid = CS.canValid
     cc_send.carControl = CC
     self.pm.send('carControl', cc_send)
+
+    # carControlSP (MADS state for consumers that need it, e.g. carcontroller)
+    cc_sp_send = messaging.new_message('carControlSP')
+    cc_sp_send.valid = CS.canValid
+    cc_sp = cc_sp_send.carControlSP
+    mads_src = self.sm['selfdriveStateSP'].mads
+    cc_sp.mads.state = mads_src.state
+    cc_sp.mads.enabled = mads_src.enabled
+    cc_sp.mads.active = mads_src.active
+    cc_sp.mads.available = mads_src.available
+    self.pm.send('carControlSP', cc_sp_send)
 
   def run(self):
     rk = Ratekeeper(100, print_delay_threshold=None)
