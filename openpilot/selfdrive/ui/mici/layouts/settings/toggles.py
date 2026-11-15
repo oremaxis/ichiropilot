@@ -62,7 +62,18 @@ class TogglesLayoutMici(NavScroller):
     self._accel_ctrl_disable_button = BigToggle("follow lead car", "" ,toggle_callback=self._accel_ctrl_disable_button_callback) #前走車追従（できればOnroadHudにも）
     self._decel_ctrl_disable_button = BigToggle("tight curve slowdown", "" ,toggle_callback=self._decel_ctrl_disable_button_callback) #カーブ減速（できればOnroadHudにも）
     self._long_speeddown_disable_button = BigToggle("chill mode signal detective", "" ,toggle_callback=self._long_speeddown_disable_button_callback) #イチロウロング
-    self._mads_button = BigToggle("MADS toggle", "" ,toggle_callback=self._mads_button_callback) #MADS
+    mads_toggle = BigParamControl("MADS", "Mads", toggle_callback=restart_needed_callback,
+                                  description="Modular Assistive Driving System (sunnypilot port).\n" +
+                                              "Steering control stays available independently of cruise,\n" +
+                                              "so lateral control can engage before or without ACC.\n" +
+                                              "Applies from the next onroad cycle.")
+    mads_unified_toggle = BigParamControl("MADS unified engagement", "MadsUnifiedEngagementMode", toggle_callback=restart_needed_callback,
+                                          description="Engage and disengage steering and cruise together.\n" +
+                                                      "When off, steering can be toggled on its own.\n" +
+                                                      "Forced on for Tesla without the screen button.\n" +
+                                                      "Applies from the next onroad cycle.")
+    self._mads_steering_mode_button = BigMultiToggle("MADS brake behaviour", ["remain active", "pause", "disengage"], select_callback=self._mads_steering_mode_callback, toggle_callback=restart_needed_callback) #ブレーキ時の横制御
+    self._mads_screen_button = BigMultiToggle("MADS screen button", ["off", "3 fingers", "4 fingers", "5 fingers"], select_callback=self._mads_screen_button_callback, toggle_callback=restart_needed_callback) #Tesla画面タップでMADS切替
     self._limitspeed_sw_button = BigMultiToggle("acc speed limit", ["manual", "auto", "record"], select_callback=self._limitspeed_sw_button_callback) #標識レコードボタン（これだけはOnroadに追加したい）
     self._lockon_disp_disable_button = BigToggle("lockon indicator", "" ,toggle_callback=self._lockon_disp_disable_button_callback) #ロックオンOFFボタン（減速時にワンペダルに落ちない）
     self._knight_scanner_bit3_button = BigMultiToggleKN("knight scanner", ["param_0", "param_1", "param_2", "param_3", "param_4", "param_5", "param_6", "param_7"], select_callback=self._knight_scanner_bit3_button_callback) #●●● ナイトスキャナー
@@ -112,7 +123,10 @@ class TogglesLayoutMici(NavScroller):
       self._accel_ctrl_disable_button,
       self._decel_ctrl_disable_button,
       self._long_speeddown_disable_button,
-      self._mads_button,
+      mads_toggle,
+      mads_unified_toggle,
+      self._mads_steering_mode_button,
+      self._mads_screen_button,
       self._limitspeed_sw_button,
       self._lockon_disp_disable_button,
       # self._vehicle_mass_btn,
@@ -134,12 +148,16 @@ class TogglesLayoutMici(NavScroller):
       ("IgnoreRerouteHarness", IgnoreRerouteHarness),
       ("TeslaCoopSteering", coop_steering_toggle),
       ("TeslaSteerNoDisengage", steer_no_disengage_toggle),
+      ("Mads", mads_toggle),
+      ("MadsUnifiedEngagementMode", mads_unified_toggle),
       ("C4UIOnC3X", C4UIOnC3X),
     )
 
     enable_openpilot.set_enabled(lambda: not ui_state.engaged)
     coop_steering_toggle.set_enabled(lambda: not ui_state.engaged)
     steer_no_disengage_toggle.set_enabled(lambda: not ui_state.engaged)
+    mads_toggle.set_enabled(lambda: not ui_state.engaged)
+    mads_unified_toggle.set_enabled(lambda: not ui_state.engaged)
     always_on_dm_toggle.set_enabled(not ui_state.params.get_bool("AlwaysOnDMLock"))
     record_front.set_enabled(False if ui_state.params.get_bool("RecordFrontLock") else (lambda: not ui_state.engaged))
     record_mic.set_enabled(lambda: not ui_state.engaged)
@@ -279,16 +297,20 @@ class TogglesLayoutMici(NavScroller):
       pass
     self._decel_ctrl_disable_button.set_checked(decel_ctrl_disable == 0)
 
-    steer_always = 0
+    # MADS (sunnypilot port): multi toggles mirror the INT params; card may
+    # rewrite them at startup (Tesla without screen button is forced to
+    # disengage + unified), so always refresh from params here
     try:
-      with open('/data/steer_always.txt','r') as fp: # /data/から取る
-        steer_always_str = fp.read()
-        if steer_always_str:
-          if int(steer_always_str) >= 1:
-            steer_always = 2 #なぜ2なのか忘れた。
+      mads_steering_mode = int(ui_state.params.get("MadsSteeringMode", return_default=True))
     except Exception as e:
-      pass
-    self._mads_button.set_checked(steer_always != 0)
+      mads_steering_mode = 0
+    self._mads_steering_mode_button.set_value(["remain active", "pause", "disengage"][max(0, min(2, mads_steering_mode))])
+
+    try:
+      mads_screen_button = int(ui_state.params.get("TeslaMadsScreenButton", return_default=True))
+    except Exception as e:
+      mads_screen_button = 0
+    self._mads_screen_button.set_value(["off", "3 fingers", "4 fingers", "5 fingers"][max(0, min(3, mads_screen_button))])
 
     long_speeddown_disable = 0
     try:
@@ -354,12 +376,17 @@ class TogglesLayoutMici(NavScroller):
     with open('/data/long_speeddown_disable.txt','w') as fp3:
       fp3.write("%d" % (long_speeddown_disable))
 
-  def _mads_button_callback(self,onoff):
-    mads_steer_always = int(onoff)
-    with open('/dev/shm/steer_always.txt','w') as fp2:
-      fp2.write("%d" % (mads_steer_always))
-    with open('/data/steer_always.txt','w') as fp3:
-      fp3.write("%d" % (mads_steer_always))
+  def _mads_steering_mode_callback(self, value):
+    # MadsSteeringMode: 0 = remain active, 1 = pause, 2 = disengage (on brake)
+    modes = ["remain active", "pause", "disengage"]
+    if value in modes:
+      ui_state.params.put("MadsSteeringMode", modes.index(value))
+
+  def _mads_screen_button_callback(self, value):
+    # TeslaMadsScreenButton: 0 = off, 1 = 3 fingers, 2 = 4 fingers, 3 = 5 fingers
+    options = ["off", "3 fingers", "4 fingers", "5 fingers"]
+    if value in options:
+      ui_state.params.put("TeslaMadsScreenButton", options.index(value))
 
   def _accel_ctrl_disable_button_callback(self,onoff):
     accel_ctrl_disable = int(not onoff)
