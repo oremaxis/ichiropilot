@@ -123,8 +123,10 @@ void Panda::set_power_saving(bool power_saving) {
 }
 
 
-void Panda::send_heartbeat(bool engaged) {
-  handle->control_write(0xf3, engaged, 0);
+void Panda::send_heartbeat(bool engaged, bool engaged_mads) {
+  // wIndex (param2) carries the MADS lateral engagement for the safety
+  // heartbeat check; firmwares without the MADS patch ignore it
+  handle->control_write(0xf3, engaged, engaged_mads);
 }
 
 

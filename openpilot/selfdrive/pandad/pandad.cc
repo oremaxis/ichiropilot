@@ -110,6 +110,7 @@ void fill_panda_state(cereal::PandaState::Builder &ps, cereal::PandaState::Panda
   ps.setIgnitionLine((health.flags_pkt & HEALTH_FLAG_IGNITION_LINE) != 0U);
   ps.setIgnitionCan((health.flags_pkt & HEALTH_FLAG_IGNITION_CAN) != 0U);
   ps.setControlsAllowed((health.flags_pkt & HEALTH_FLAG_CONTROLS_ALLOWED) != 0U);
+  ps.setControlsAllowedLateral((health.flags_pkt & HEALTH_FLAG_CONTROLS_ALLOWED_LATERAL) != 0U);
   ps.setTxBufferOverflow(health.tx_buffer_overflow_pkt);
   ps.setRxBufferOverflow(health.rx_buffer_overflow_pkt);
   ps.setPandaType(hw_type);
@@ -257,7 +258,12 @@ void send_peripheral_state(Panda *panda, PubMaster *pm) {
   pm->send("peripheralState", msg);
 }
 
-void process_panda_state(Panda *panda, PubMaster *pm, bool engaged, bool is_onroad, bool spoofing_started) {
+bool process_mads_heartbeat(SubMaster *sm) {
+  const auto &mads = (*sm)["selfdriveStateSP"].getSelfdriveStateSP().getMads();
+  return sm->allAliveAndValid({"selfdriveStateSP"}) && mads.getEnabled();
+}
+
+void process_panda_state(Panda *panda, PubMaster *pm, bool engaged, bool engaged_mads, bool is_onroad, bool spoofing_started) {
   auto ignition_opt = send_panda_states(pm, panda, is_onroad, spoofing_started);
   if (!ignition_opt) {
     LOGE("Failed to get ignition_opt");
@@ -272,7 +278,7 @@ void process_panda_state(Panda *panda, PubMaster *pm, bool engaged, bool is_onro
     }
   }
 
-  panda->send_heartbeat(engaged);
+  panda->send_heartbeat(engaged, engaged_mads);
 }
 
 void process_peripheral_state(Panda *panda, PubMaster *pm, bool no_fan_control, bool is_onroad) {
@@ -365,10 +371,11 @@ void pandad_run(Panda *panda) {
   std::thread send_thread(can_send_thread, panda, fake_send);
 
   RateKeeper rk("pandad", 100);
-  SubMaster sm({"selfdriveState", "deviceState"});
+  SubMaster sm({"selfdriveState", "deviceState", "selfdriveStateSP"});
   PubMaster pm({"can", "pandaStates", "peripheralState"});
   PandaSafety panda_safety(panda);
   bool engaged = false;
+  bool engaged_mads = false;
   bool is_onroad = false;
 
   // Main loop: receive CAN first, then process lower priority panda and peripheral state.
@@ -383,31 +390,15 @@ void pandad_run(Panda *panda) {
     // Process panda state at 10 Hz
     if (rk.frame() % 10 == 0) {
       sm.update(0);
-#if 1
-      bool steer_always = false;
-      bool cruise_available = false;
-      std::string steer_always_txt = util::read_file("/dev/shm/steer_always.txt");
-      if(steer_always_txt.empty() == false){
-        if(std::stoi(steer_always_txt) >= 1){
-          steer_always = true;
-        } else {
-          steer_always = false;
-        }
-      }
-      std::string cruise_available_txt = util::read_file("/dev/shm/cruise_available.txt");
-      if(cruise_available_txt.empty() == false){
-        if(std::stoi(cruise_available_txt) >= 1){
-          cruise_available = true;
-        } else {
-          cruise_available = false;
-        }
-      }
-#endif
-      engaged = sm.allAliveAndValid({"selfdriveState"}) && (sm["selfdriveState"].getSelfdriveState().getEnabled() || (steer_always && cruise_available));
+      // MADS (sunnypilot port): the fork's steer_always file hack that used to
+      // widen "engaged" here is retired; lateral engagement now travels as the
+      // separate MADS heartbeat derived from selfdriveStateSP.
+      engaged = sm.allAliveAndValid({"selfdriveState"}) && sm["selfdriveState"].getSelfdriveState().getEnabled();
+      engaged_mads = process_mads_heartbeat(&sm);
       if (sm.updated("deviceState")) {
         is_onroad = sm["deviceState"].getDeviceState().getStarted();
       }
-      process_panda_state(panda, &pm, engaged, is_onroad, spoofing_started);
+      process_panda_state(panda, &pm, engaged, engaged_mads, is_onroad, spoofing_started);
       panda_safety.configureSafetyMode(is_onroad);
     }
 

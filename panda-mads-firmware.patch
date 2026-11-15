@@ -1,0 +1,32 @@
+diff --git a/board/health.h b/board/health.h
+index 48a86486..7793c3df 100644
+--- a/board/health.h
++++ b/board/health.h
+@@ -10,6 +10,7 @@
+ #define HEALTH_FLAG_NMI_RESET                (1U << 7)
+ #define HEALTH_FLAG_HARDFAULT_RESET          ((uint16_t)1U << 8)
+ #define HEALTH_FLAG_HEARTBEAT_DISABLED       ((uint16_t)1U << 9)
++#define HEALTH_FLAG_CONTROLS_ALLOWED_LATERAL ((uint16_t)1U << 10)
+ 
+ struct __attribute__((packed)) health_t {
+   uint32_t uptime_pkt;
+diff --git a/board/main_comms.h b/board/main_comms.h
+index e7471fb2..7eca391d 100644
+--- a/board/main_comms.h
++++ b/board/main_comms.h
+@@ -21,6 +21,7 @@ static int get_health_pkt(void *dat) {
+   health->flags_pkt |= harness_check_ignition() ? HEALTH_FLAG_IGNITION_LINE : 0U;
+   health->flags_pkt |= ignition_can ? HEALTH_FLAG_IGNITION_CAN : 0U;
+   health->flags_pkt |= safety.controls_allowed ? HEALTH_FLAG_CONTROLS_ALLOWED : 0U;
++  health->flags_pkt |= safety.lateral_controls_allowed ? HEALTH_FLAG_CONTROLS_ALLOWED_LATERAL : 0U;
+   health->flags_pkt |= power_save_enabled ? HEALTH_FLAG_POWER_SAVE_ENABLED : 0U;
+   health->flags_pkt |= heartbeat_lost ? HEALTH_FLAG_HEARTBEAT_LOST : 0U;
+   health->flags_pkt |= safety.safety_rx_checks_invalid ? HEALTH_FLAG_SAFETY_RX_CHECKS_INVALID : 0U;
+@@ -386,6 +387,7 @@ int comms_control_handler(ControlPacket_t *req, uint8_t *resp) {
+         heartbeat_disabled = false;
+         mpu_safety_open();
+         safety_heartbeat(req->param1 == 1U);
++        safety_heartbeat_mads(req->param2 == 1U);
+         mpu_safety_close();
+         break;
+       }
